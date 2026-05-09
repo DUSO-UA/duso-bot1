@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 from datetime import datetime
+import os
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -15,8 +16,6 @@ from aiogram.types import (
 )
 
 from dotenv import load_dotenv
-import os
-
 from openpyxl import Workbook
 
 load_dotenv()
@@ -44,34 +43,55 @@ CREATE TABLE IF NOT EXISTS analytics (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    full_name TEXT,
+    phone TEXT,
+    city TEXT,
+    contact TEXT,
+    comment TEXT,
+    source TEXT,
+    created_at TEXT
+)
+""")
+
 conn.commit()
 
 # =========================
 # STATES
 # =========================
 
-class OfficeConsultation(StatesGroup):
+class Office(StatesGroup):
     name = State()
     phone = State()
     city = State()
     comment = State()
 
-
-class OnlineConsultation(StatesGroup):
+class Online(StatesGroup):
     name = State()
     phone = State()
     contact = State()
     time = State()
 
 # =========================
-# KEYBOARD
+# KEYBOARDS
 # =========================
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="📄 Отримати презентацію")],
-        [KeyboardButton(text="🏢 Замовити консультацію в офісі ДЮСО")],
-        [KeyboardButton(text="💻 Замовити консультацію онлайн")],
+        [KeyboardButton(text="📄 Презентація")],
+        [KeyboardButton(text="🏢 Офіс консультація")],
+        [KeyboardButton(text="💻 Онлайн консультація")],
+    ],
+    resize_keyboard=True,
+)
+
+admin_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="📁 Експорт CRM")],
     ],
     resize_keyboard=True,
 )
@@ -80,7 +100,7 @@ main_keyboard = ReplyKeyboardMarkup(
 # HELPERS
 # =========================
 
-def save_analytics(user, action):
+def save_event(user, action):
     cursor.execute("""
         INSERT INTO analytics (username, full_name, action, created_at)
         VALUES (?, ?, ?, ?)
@@ -92,8 +112,24 @@ def save_analytics(user, action):
     ))
     conn.commit()
 
+def save_lead(data, user, source):
+    cursor.execute("""
+        INSERT INTO leads (
+            username, full_name, phone, city, contact, comment, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user.username,
+        user.full_name,
+        data.get("phone"),
+        data.get("city"),
+        data.get("contact"),
+        data.get("comment"),
+        source,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    ))
+    conn.commit()
 
-async def send_lead_to_manager(text):
+async def send_manager(text):
     await bot.send_message(MANAGER_CHAT, text)
 
 # =========================
@@ -101,9 +137,20 @@ async def send_lead_to_manager(text):
 # =========================
 
 @dp.message(CommandStart())
-async def start_handler(message: Message):
+async def start(message: Message):
+
+    if message.chat.id == MANAGER_CHAT:
+        await message.answer("🔐 CRM ADMIN PANEL", reply_markup=admin_keyboard)
+        return
+
+    try:
+        await message.answer_photo(FSInputFile("suprema.jpg"), caption="🔥 Suprema")
+        await message.answer_photo(FSInputFile("accure.jpg"), caption="❄️ Accure")
+    except:
+        pass
+
     await message.answer(
-        "🔥 DUSO BOT",
+        "📍 DUSO BOT\n📞 044 506 77 77",
         reply_markup=main_keyboard
     )
 
@@ -111,176 +158,173 @@ async def start_handler(message: Message):
 # PDF
 # =========================
 
-@dp.message(F.text == "📄 Отримати презентацію")
-async def send_presentation(message: Message):
+@dp.message(F.text == "📄 Презентація")
+async def pdf(message: Message):
 
-    pdf = FSInputFile("catalog.pdf")
+    await message.answer_document(FSInputFile("catalog.pdf"))
 
-    await message.answer_document(
-        document=pdf,
-        caption="Каталог DUSO"
-    )
-
-    save_analytics(message.from_user, "download_pdf")
+    save_event(message.from_user, "pdf")
 
 # =========================
-# OFFICE
+# OFFICE LEAD
 # =========================
 
-@dp.message(F.text == "🏢 Замовити консультацію в офісі ДЮСО")
+@dp.message(F.text == "🏢 Офіс консультація")
 async def office_start(message: Message, state: FSMContext):
-    await state.set_state(OfficeConsultation.name)
+    await state.set_state(Office.name)
     await message.answer("Ім'я:")
 
-@dp.message(OfficeConsultation.name)
+@dp.message(Office.name)
 async def office_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await state.set_state(OfficeConsultation.phone)
+    await state.set_state(Office.phone)
     await message.answer("Телефон:")
 
-@dp.message(OfficeConsultation.phone)
+@dp.message(Office.phone)
 async def office_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text)
-    await state.set_state(OfficeConsultation.city)
+    await state.set_state(Office.city)
     await message.answer("Місто:")
 
-@dp.message(OfficeConsultation.city)
+@dp.message(Office.city)
 async def office_city(message: Message, state: FSMContext):
     await state.update_data(city=message.text)
-    await state.set_state(OfficeConsultation.comment)
+    await state.set_state(Office.comment)
     await message.answer("Коментар:")
 
-@dp.message(OfficeConsultation.comment)
+@dp.message(Office.comment)
 async def office_finish(message: Message, state: FSMContext):
+
     data = await state.get_data()
 
-    text = f"""
-🏢 ОФЛАЙН ЗАЯВКА
+    save_lead(data, message.from_user, "office")
+
+    await send_manager(f"""
+🏢 ОФЛАЙН ЛІД
 
 👤 {data['name']}
 📱 {data['phone']}
 🏙 {data['city']}
 💬 {message.text}
-"""
+""")
 
-    await send_lead_to_manager(text)
-    save_analytics(message.from_user, "office_consultation")
+    save_event(message.from_user, "office")
 
-    await message.answer("Дякуємо!", reply_markup=main_keyboard)
+    await message.answer("✔️ Дякуємо!")
     await state.clear()
 
 # =========================
-# ONLINE
+# ONLINE LEAD
 # =========================
 
-@dp.message(F.text == "💻 Замовити консультацію онлайн")
+@dp.message(F.text == "💻 Онлайн консультація")
 async def online_start(message: Message, state: FSMContext):
-    await state.set_state(OnlineConsultation.name)
+    await state.set_state(Online.name)
     await message.answer("Ім'я:")
 
-@dp.message(OnlineConsultation.name)
+@dp.message(Online.name)
 async def online_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await state.set_state(OnlineConsultation.phone)
+    await state.set_state(Online.phone)
     await message.answer("Телефон:")
 
-@dp.message(OnlineConsultation.phone)
+@dp.message(Online.phone)
 async def online_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text)
-    await state.set_state(OnlineConsultation.contact)
+    await state.set_state(Online.contact)
     await message.answer("Контакт:")
 
-@dp.message(OnlineConsultation.contact)
+@dp.message(Online.contact)
 async def online_contact(message: Message, state: FSMContext):
     await state.update_data(contact=message.text)
-    await state.set_state(OnlineConsultation.time)
+    await state.set_state(Online.time)
     await message.answer("Час:")
 
-@dp.message(OnlineConsultation.time)
+@dp.message(Online.time)
 async def online_finish(message: Message, state: FSMContext):
+
     data = await state.get_data()
 
-    text = f"""
-💻 ОНЛАЙН ЗАЯВКА
+    save_lead(data, message.from_user, "online")
+
+    await send_manager(f"""
+💻 ОНЛАЙН ЛІД
 
 👤 {data['name']}
 📱 {data['phone']}
 📧 {data['contact']}
 ⏰ {message.text}
-"""
+""")
 
-    await send_lead_to_manager(text)
-    save_analytics(message.from_user, "online_consultation")
+    save_event(message.from_user, "online")
 
-    await message.answer("Дякуємо!", reply_markup=main_keyboard)
+    await message.answer("✔️ Дякуємо!")
     await state.clear()
 
 # =========================
-# STATS (ONLY MANAGER)
+# ADMIN STATS BUTTON
 # =========================
 
-@dp.message(F.text == "/analytics")
-async def analytics(message: Message):
+@dp.message(F.text == "📊 Статистика")
+async def stats(message: Message):
 
     if message.chat.id != MANAGER_CHAT:
         return
 
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='download_pdf'")
+    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='pdf'")
     pdf = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='office_consultation'")
+    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='office'")
     office = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='online_consultation'")
+    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='online'")
     online = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM analytics")
-    total = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM leads")
+    leads = cursor.fetchone()[0]
 
-    text = f"""
-📊 СТАТИСТИКА
+    await message.answer(f"""
+📊 CRM STAT
 
 📄 PDF: {pdf}
-🏢 Офлайн: {office}
+🏢 Офіс: {office}
 💻 Онлайн: {online}
-
-📦 Всього: {total}
-"""
-
-    await message.answer(text)
+📦 Ліди: {leads}
+""")
 
 # =========================
-# EXPORT EXCEL
+# EXPORT CRM
 # =========================
 
-@dp.message(F.text == "/export")
-async def export_excel(message: Message):
+@dp.message(F.text == "📁 Експорт CRM")
+async def export(message: Message):
 
     if message.chat.id != MANAGER_CHAT:
         return
 
-    cursor.execute("SELECT * FROM analytics")
+    cursor.execute("SELECT * FROM leads")
     rows = cursor.fetchall()
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Leads"
+    ws.title = "CRM"
 
-    ws.append(["ID", "Username", "Full Name", "Action", "Date"])
+    ws.append([
+        "ID", "Username", "Full Name",
+        "Phone", "City", "Contact",
+        "Comment", "Source", "Date"
+    ])
 
-    for row in rows:
-        ws.append(row)
+    for r in rows:
+        ws.append(r)
 
-    file_path = "leads.xlsx"
-    wb.save(file_path)
+    file = "crm.xlsx"
+    wb.save(file)
 
-    await message.answer_document(
-        FSInputFile(file_path),
-        caption="📁 Експорт лідів"
-    )
+    await message.answer_document(FSInputFile(file))
 
 # =========================
-# MAIN
+# RUN
 # =========================
 
 async def main():
