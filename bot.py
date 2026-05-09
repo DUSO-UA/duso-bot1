@@ -101,9 +101,16 @@ admin_keyboard = ReplyKeyboardMarkup(
 )
 
 def call_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📞 Зателефонувати", url="tel:+380445067777")]
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📞 Зателефонувати",
+                    url="https://wa.me/380445067777"
+                )
+            ]
+        ]
+    )
 
 # =========================
 # HELPERS
@@ -111,7 +118,12 @@ def call_keyboard():
 
 def save_event(user, action):
     cursor.execute("""
-        INSERT INTO analytics (username, full_name, action, created_at)
+        INSERT INTO analytics (
+            username,
+            full_name,
+            action,
+            created_at
+        )
         VALUES (?, ?, ?, ?)
     """, (
         user.username,
@@ -122,46 +134,70 @@ def save_event(user, action):
     conn.commit()
 
 def save_lead(data, user, source):
+
     cursor.execute("""
         INSERT INTO leads (
-            username, full_name, phone, city, contact, comment, source, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            username,
+            full_name,
+            phone,
+            city,
+            contact,
+            comment,
+            source,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user.username,
         user.full_name,
-        data.get("phone"),
-        data.get("city"),
-        data.get("contact"),
-        data.get("comment"),
+        data.get("phone", ""),
+        data.get("city", ""),
+        data.get("contact", ""),
+        data.get("comment", ""),
         source,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ))
+
     conn.commit()
 
 async def send_lead_to_manager(text):
     await bot.send_message(MANAGER_CHAT, text)
 
 # =========================
-# START + CAROUSEL
+# START
 # =========================
 
 @dp.message(CommandStart())
 async def start(message: Message):
 
     if message.chat.id == MANAGER_CHAT:
-        await message.answer("🔐 ADMIN PANEL", reply_markup=admin_keyboard)
+        await message.answer(
+            "🔐 ADMIN PANEL",
+            reply_markup=admin_keyboard
+        )
         return
 
     try:
+
         media = [
-            InputMediaPhoto(FSInputFile("suprema.jpg"),
-                caption="🔥 Suprema — флагманська платформа Quanta System"),
-            InputMediaPhoto(FSInputFile("accure.jpg"),
-                caption="❄️ Accure — Єдина в світі система апаратного лікування акне"),
+            InputMediaPhoto(
+                media=FSInputFile("suprema.jpg"),
+                caption="🔥 Suprema — флагманська платформа Quanta System"
+            ),
+
+            InputMediaPhoto(
+                media=FSInputFile("accure.jpg"),
+                caption="❄️ Accure — Єдина в світі система апаратного лікування акне"
+            ),
         ]
-        await message.answer_media_group(media)
-    except:
-        pass
+
+        await bot.send_media_group(
+            chat_id=message.chat.id,
+            media=media
+        )
+
+    except Exception as e:
+        print("PHOTO ERROR:", e)
 
     await message.answer(
         """
@@ -185,39 +221,60 @@ async def start(message: Message):
 @dp.message(F.text == "📄 Отримати презентацію")
 async def pdf(message: Message):
 
-    await message.answer_document(FSInputFile("catalog.pdf"))
+    try:
 
-    save_event(message.from_user, "pdf_download")
+        await message.answer_document(
+            FSInputFile("catalog.pdf"),
+            caption="📘 Каталог DUSO"
+        )
+
+        save_event(message.from_user, "pdf_download")
+
+    except Exception as e:
+        print("PDF ERROR:", e)
+
+        await message.answer(
+            f"❌ Помилка PDF:\n{e}"
+        )
 
 # =========================
-# OFFICE LEAD
+# OFFICE
 # =========================
 
 @dp.message(F.text == "🏢 Консультація в офісі")
 async def office_start(message: Message, state: FSMContext):
+
     await state.set_state(Office.name)
     await message.answer("Ім'я:")
 
 @dp.message(Office.name)
 async def office_name(message: Message, state: FSMContext):
+
     await state.update_data(name=message.text)
+
     await state.set_state(Office.phone)
     await message.answer("Телефон:")
 
 @dp.message(Office.phone)
 async def office_phone(message: Message, state: FSMContext):
+
     await state.update_data(phone=message.text)
+
     await state.set_state(Office.city)
     await message.answer("Місто:")
 
 @dp.message(Office.city)
 async def office_city(message: Message, state: FSMContext):
+
     await state.update_data(city=message.text)
+
     await state.set_state(Office.comment)
     await message.answer("Додатковий коментар:")
 
 @dp.message(Office.comment)
 async def office_finish(message: Message, state: FSMContext):
+
+    await state.update_data(comment=message.text)
 
     data = await state.get_data()
 
@@ -227,16 +284,18 @@ async def office_finish(message: Message, state: FSMContext):
     await send_lead_to_manager(f"""
 🏢 ОФІС ЛІД
 
-👤 {data['name']}
-📱 {data['phone']}
-🏙 {data['city']}
-💬 {message.text}
+👤 Ім'я: {data.get('name')}
+📱 Телефон: {data.get('phone')}
+🏙 Місто: {data.get('city')}
+💬 Коментар: {data.get('comment')}
 
 TG: @{message.from_user.username}
+ID: {message.from_user.id}
 """)
 
     await message.answer(
-        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер."
+        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер.",
+        reply_markup=main_keyboard
     )
 
     await message.answer(
@@ -247,53 +306,74 @@ TG: @{message.from_user.username}
     await state.clear()
 
 # =========================
-# ONLINE LEAD
+# ONLINE
 # =========================
 
 @dp.message(F.text == "💻 Онлайн консультація")
 async def online_start(message: Message, state: FSMContext):
+
     await state.set_state(Online.name)
     await message.answer("Ім'я:")
 
 @dp.message(Online.name)
 async def online_name(message: Message, state: FSMContext):
+
     await state.update_data(name=message.text)
+
     await state.set_state(Online.phone)
     await message.answer("Телефон:")
 
 @dp.message(Online.phone)
 async def online_phone(message: Message, state: FSMContext):
+
     await state.update_data(phone=message.text)
+
     await state.set_state(Online.contact)
     await message.answer("Додатковий контакт/e-mail:")
 
 @dp.message(Online.contact)
 async def online_contact(message: Message, state: FSMContext):
+
     await state.update_data(contact=message.text)
+
     await state.set_state(Online.time)
     await message.answer("Бажана дата:")
 
 @dp.message(Online.time)
 async def online_finish(message: Message, state: FSMContext):
 
+    await state.update_data(time=message.text)
+
     data = await state.get_data()
 
-    save_lead(data, message.from_user, "online")
+    save_lead(
+        {
+            "phone": data.get("phone"),
+            "city": "",
+            "contact": data.get("contact"),
+            "comment": data.get("time"),
+        },
+        message.from_user,
+        "online"
+    )
+
     save_event(message.from_user, "online")
 
     await send_lead_to_manager(f"""
 💻 ОНЛАЙН ЛІД
 
-👤 {data['name']}
-📱 {data['phone']}
-📧 {data['contact']}
-⏰ {message.text}
+👤 Ім'я: {data.get('name')}
+📱 Телефон: {data.get('phone')}
+📧 Контакт: {data.get('contact')}
+📅 Бажана дата: {data.get('time')}
 
 TG: @{message.from_user.username}
+ID: {message.from_user.id}
 """)
 
     await message.answer(
-        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер."
+        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер.",
+        reply_markup=main_keyboard
     )
 
     await message.answer(
@@ -316,22 +396,34 @@ async def stats(message: Message):
     cursor.execute("SELECT COUNT(*) FROM leads")
     total = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM leads WHERE source='office'")
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM leads
+        WHERE source='office'
+    """)
     office = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM leads WHERE source='online'")
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM leads
+        WHERE source='online'
+    """)
     online = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='pdf_download'")
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM analytics
+        WHERE action='pdf_download'
+    """)
     pdf = cursor.fetchone()[0]
 
     await message.answer(f"""
-📊 CRM
+📊 CRM СТАТИСТИКА
 
-📦 Всього: {total}
+📦 Всього лідів: {total}
 🏢 Офіс: {office}
 💻 Онлайн: {online}
-📄 PDF: {pdf}
+📄 PDF скачано: {pdf}
 """)
 
 # =========================
@@ -346,18 +438,54 @@ async def export(message: Message):
 
     wb = Workbook()
 
+    # =====================
+    # LEADS
+    # =====================
+
     ws1 = wb.active
     ws1.title = "LEADS"
 
-    ws1.append(["ID","Username","Full Name","Phone","City","Contact","Comment","Source","Date"])
+    ws1.append([
+        "ID",
+        "Username",
+        "Full Name",
+        "Phone",
+        "City",
+        "Contact",
+        "Comment",
+        "Source",
+        "Date"
+    ])
 
     cursor.execute("SELECT * FROM leads")
-    for r in cursor.fetchall():
-        ws1.append(r)
 
-    ws2 = wb.create_sheet("PDF")
+    rows = cursor.fetchall()
 
-    ws2.append(["Username","Full Name","Date"])
+    for r in rows:
+
+        ws1.append([
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            r[4],
+            r[5],
+            r[6],
+            r[7],
+            r[8],
+        ])
+
+    # =====================
+    # PDF LOGS
+    # =====================
+
+    ws2 = wb.create_sheet("PDF_LOGS")
+
+    ws2.append([
+        "Username",
+        "Full Name",
+        "Date"
+    ])
 
     cursor.execute("""
         SELECT username, full_name, created_at
@@ -366,17 +494,26 @@ async def export(message: Message):
     """)
 
     for r in cursor.fetchall():
-        ws2.append(r)
 
-    wb.save("crm.xlsx")
+        ws2.append([
+            r[0],
+            r[1],
+            r[2],
+        ])
 
-    await message.answer_document(FSInputFile("crm.xlsx"))
+    file_name = "crm.xlsx"
+
+    wb.save(file_name)
+
+    await message.answer_document(
+        FSInputFile(file_name)
+    )
 
 # =========================
 # RESET
 # =========================
 
-@dp.message(F.text == "🧹 Reset ")
+@dp.message(F.text == "🧹 Reset (TEST)")
 async def reset(message: Message):
 
     if message.chat.id != MANAGER_CHAT:
@@ -384,16 +521,21 @@ async def reset(message: Message):
 
     cursor.execute("DELETE FROM leads")
     cursor.execute("DELETE FROM analytics")
+
     conn.commit()
 
-    await message.answer("♻️ RESET DONE")
+    await message.answer(
+        "♻️ Статистика та CRM очищені"
+    )
 
 # =========================
-# RUN
+# MAIN
 # =========================
 
 async def main():
+
     print("BOT STARTED")
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
