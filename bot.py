@@ -14,6 +14,8 @@ from aiogram.types import (
     KeyboardButton,
     FSInputFile,
     InputMediaPhoto,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
 )
 
 from dotenv import load_dotenv
@@ -98,6 +100,11 @@ admin_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
+def call_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📞 Зателефонувати", url="tel:+380445067777")]
+    ])
+
 # =========================
 # HELPERS
 # =========================
@@ -131,6 +138,9 @@ def save_lead(data, user, source):
     ))
     conn.commit()
 
+async def send_lead_to_manager(text):
+    await bot.send_message(MANAGER_CHAT, text)
+
 # =========================
 # START + CAROUSEL
 # =========================
@@ -138,40 +148,31 @@ def save_lead(data, user, source):
 @dp.message(CommandStart())
 async def start(message: Message):
 
-    # 🔐 адмін
     if message.chat.id == MANAGER_CHAT:
         await message.answer("🔐 ADMIN PANEL", reply_markup=admin_keyboard)
         return
 
     try:
         media = [
-            InputMediaPhoto(
-                media=FSInputFile("suprema.jpg"),
-                caption="🔥 Suprema — флагманська платформа Quanta System"
-            ),
-            InputMediaPhoto(
-                media=FSInputFile("accure.jpg"),
-                caption="❄️ Accure — Єдина в світі система апаратного лікування акне"
-            ),
+            InputMediaPhoto(FSInputFile("suprema.jpg"),
+                caption="🔥 Suprema — флагманська платформа Quanta System"),
+            InputMediaPhoto(FSInputFile("accure.jpg"),
+                caption="❄️ Accure — Єдина в світі система апаратного лікування акне"),
         ]
-
         await message.answer_media_group(media)
-
-    except Exception as e:
-        print("CAROUSEL ERROR:", e)
+    except:
+        pass
 
     await message.answer(
         """
-🔥 Chat Лідери для лідерів DUSO
+🔥 ЛІДЕРИ ДЛЯ ЛІДЕРІВ - DUSO since 2006
 
-📍 Звязатись з нами:
-Київ, вул. Садово-Ботанічна, 64
-📞 044 506 77 77
+📍 Київ, вул. Садово-Ботанічна, 64
+📞 +380445067777
 🌐 duso.ua
-
 📸 Instagram: <a href="https://www.instagram.com/duso.ua?igsh=ZmNmZGVzcHJuNGM5">@duso.ua</a>
 
-Оберіть дію 👇
+Цікавить індивідуальна консультація або презентація 👇
         """,
         reply_markup=main_keyboard,
         parse_mode="HTML"
@@ -189,7 +190,7 @@ async def pdf(message: Message):
     save_event(message.from_user, "pdf_download")
 
 # =========================
-# OFFICE
+# OFFICE LEAD
 # =========================
 
 @dp.message(F.text == "🏢 Консультація в офісі")
@@ -213,7 +214,7 @@ async def office_phone(message: Message, state: FSMContext):
 async def office_city(message: Message, state: FSMContext):
     await state.update_data(city=message.text)
     await state.set_state(Office.comment)
-    await message.answer("Коментар:")
+    await message.answer("Додатковий коментар:")
 
 @dp.message(Office.comment)
 async def office_finish(message: Message, state: FSMContext):
@@ -223,11 +224,30 @@ async def office_finish(message: Message, state: FSMContext):
     save_lead(data, message.from_user, "office")
     save_event(message.from_user, "office")
 
-    await message.answer("✔️ Дякуємо!", reply_markup=main_keyboard)
+    await send_lead_to_manager(f"""
+🏢 ОФІС ЛІД
+
+👤 {data['name']}
+📱 {data['phone']}
+🏙 {data['city']}
+💬 {message.text}
+
+TG: @{message.from_user.username}
+""")
+
+    await message.answer(
+        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер."
+    )
+
+    await message.answer(
+        "📞 Ми завжди на зв'язку!",
+        reply_markup=call_keyboard()
+    )
+
     await state.clear()
 
 # =========================
-# ONLINE
+# ONLINE LEAD
 # =========================
 
 @dp.message(F.text == "💻 Онлайн консультація")
@@ -245,13 +265,13 @@ async def online_name(message: Message, state: FSMContext):
 async def online_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text)
     await state.set_state(Online.contact)
-    await message.answer("Контакт:")
+    await message.answer("Додатковий контакт/e-mail:")
 
 @dp.message(Online.contact)
 async def online_contact(message: Message, state: FSMContext):
     await state.update_data(contact=message.text)
     await state.set_state(Online.time)
-    await message.answer("Час:")
+    await message.answer("Бажана дата:")
 
 @dp.message(Online.time)
 async def online_finish(message: Message, state: FSMContext):
@@ -261,11 +281,30 @@ async def online_finish(message: Message, state: FSMContext):
     save_lead(data, message.from_user, "online")
     save_event(message.from_user, "online")
 
-    await message.answer("✔️ Дякуємо!", reply_markup=main_keyboard)
+    await send_lead_to_manager(f"""
+💻 ОНЛАЙН ЛІД
+
+👤 {data['name']}
+📱 {data['phone']}
+📧 {data['contact']}
+⏰ {message.text}
+
+TG: @{message.from_user.username}
+""")
+
+    await message.answer(
+        "🙏 Дякуємо! Найближчим часом з Вами зв’яжеться наш менеджер."
+    )
+
+    await message.answer(
+        "📞 Ми завжди на зв'язку!",
+        reply_markup=call_keyboard()
+    )
+
     await state.clear()
 
 # =========================
-# STATS (тільки ти)
+# STATISTICS
 # =========================
 
 @dp.message(F.text == "📊 Статистика")
@@ -275,16 +314,24 @@ async def stats(message: Message):
         return
 
     cursor.execute("SELECT COUNT(*) FROM leads")
-    leads = cursor.fetchone()[0]
+    total = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM leads WHERE source='office'")
+    office = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM leads WHERE source='online'")
+    online = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='pdf_download'")
     pdf = cursor.fetchone()[0]
 
     await message.answer(f"""
-📊 СТАТИСТИКА
+📊 CRM
 
-📦 Ліди: {leads}
-📄 PDF скачано: {pdf}
+📦 Всього: {total}
+🏢 Офіс: {office}
+💻 Онлайн: {online}
+📄 PDF: {pdf}
 """)
 
 # =========================
@@ -300,13 +347,17 @@ async def export(message: Message):
     wb = Workbook()
 
     ws1 = wb.active
-    ws1.title = "Leads"
+    ws1.title = "LEADS"
+
+    ws1.append(["ID","Username","Full Name","Phone","City","Contact","Comment","Source","Date"])
 
     cursor.execute("SELECT * FROM leads")
     for r in cursor.fetchall():
         ws1.append(r)
 
-    ws2 = wb.create_sheet("PDF Logs")
+    ws2 = wb.create_sheet("PDF")
+
+    ws2.append(["Username","Full Name","Date"])
 
     cursor.execute("""
         SELECT username, full_name, created_at
@@ -317,26 +368,25 @@ async def export(message: Message):
     for r in cursor.fetchall():
         ws2.append(r)
 
-    file = "crm.xlsx"
-    wb.save(file)
+    wb.save("crm.xlsx")
 
-    await message.answer_document(FSInputFile(file))
+    await message.answer_document(FSInputFile("crm.xlsx"))
 
 # =========================
 # RESET
 # =========================
 
-@dp.message(F.text == "🧹 Reset (TEST)")
+@dp.message(F.text == "🧹 Reset ")
 async def reset(message: Message):
 
     if message.chat.id != MANAGER_CHAT:
         return
 
-    cursor.execute("DELETE FROM analytics")
     cursor.execute("DELETE FROM leads")
+    cursor.execute("DELETE FROM analytics")
     conn.commit()
 
-    await message.answer("♻️ TEST DATA CLEARED")
+    await message.answer("♻️ RESET DONE")
 
 # =========================
 # RUN
