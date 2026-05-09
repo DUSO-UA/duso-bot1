@@ -13,6 +13,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     FSInputFile,
+    InputMediaPhoto,
 )
 
 from dotenv import load_dotenv
@@ -81,8 +82,8 @@ class Online(StatesGroup):
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="📄 Презентація")],
-        [KeyboardButton(text="🏢 Офіс консультація")],
+        [KeyboardButton(text="📄 Отримати презентацію")],
+        [KeyboardButton(text="🏢 Консультація в офісі")],
         [KeyboardButton(text="💻 Онлайн консультація")],
     ],
     resize_keyboard=True,
@@ -92,6 +93,7 @@ admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="📁 Експорт CRM")],
+        [KeyboardButton(text="🧹 Reset (TEST)")],
     ],
     resize_keyboard=True,
 )
@@ -129,47 +131,68 @@ def save_lead(data, user, source):
     ))
     conn.commit()
 
-async def send_manager(text):
-    await bot.send_message(MANAGER_CHAT, text)
-
 # =========================
-# START
+# START + CAROUSEL
 # =========================
 
 @dp.message(CommandStart())
 async def start(message: Message):
 
+    # 🔐 адмін
     if message.chat.id == MANAGER_CHAT:
-        await message.answer("🔐 CRM ADMIN PANEL", reply_markup=admin_keyboard)
+        await message.answer("🔐 ADMIN PANEL", reply_markup=admin_keyboard)
         return
 
     try:
-        await message.answer_photo(FSInputFile("suprema.jpg"), caption="🔥 Suprema")
-        await message.answer_photo(FSInputFile("accure.jpg"), caption="❄️ Accure")
-    except:
-        pass
+        media = [
+            InputMediaPhoto(
+                media=FSInputFile("suprema.jpg"),
+                caption="🔥 Suprema — флагманська платформа Quanta System"
+            ),
+            InputMediaPhoto(
+                media=FSInputFile("accure.jpg"),
+                caption="❄️ Accure — Єдина в світі система апаратного лікування акне"
+            ),
+        ]
+
+        await message.answer_media_group(media)
+
+    except Exception as e:
+        print("CAROUSEL ERROR:", e)
 
     await message.answer(
-        "📍 DUSO BOT\n📞 044 506 77 77",
-        reply_markup=main_keyboard
+        """
+🔥 Chat Лідери для лідерів DUSO
+
+📍 Звязатись з нами:
+Київ, вул. Садово-Ботанічна, 64
+📞 044 506 77 77
+🌐 duso.ua
+
+📸 Instagram: <a href="https://www.instagram.com/duso.ua?igsh=ZmNmZGVzcHJuNGM5">@duso.ua</a>
+
+Оберіть дію 👇
+        """,
+        reply_markup=main_keyboard,
+        parse_mode="HTML"
     )
 
 # =========================
 # PDF
 # =========================
 
-@dp.message(F.text == "📄 Презентація")
+@dp.message(F.text == "📄 Отримати презентацію")
 async def pdf(message: Message):
 
     await message.answer_document(FSInputFile("catalog.pdf"))
 
-    save_event(message.from_user, "pdf")
+    save_event(message.from_user, "pdf_download")
 
 # =========================
-# OFFICE LEAD
+# OFFICE
 # =========================
 
-@dp.message(F.text == "🏢 Офіс консультація")
+@dp.message(F.text == "🏢 Консультація в офісі")
 async def office_start(message: Message, state: FSMContext):
     await state.set_state(Office.name)
     await message.answer("Ім'я:")
@@ -198,23 +221,13 @@ async def office_finish(message: Message, state: FSMContext):
     data = await state.get_data()
 
     save_lead(data, message.from_user, "office")
-
-    await send_manager(f"""
-🏢 ОФЛАЙН ЛІД
-
-👤 {data['name']}
-📱 {data['phone']}
-🏙 {data['city']}
-💬 {message.text}
-""")
-
     save_event(message.from_user, "office")
 
-    await message.answer("✔️ Дякуємо!")
+    await message.answer("✔️ Дякуємо!", reply_markup=main_keyboard)
     await state.clear()
 
 # =========================
-# ONLINE LEAD
+# ONLINE
 # =========================
 
 @dp.message(F.text == "💻 Онлайн консультація")
@@ -246,23 +259,13 @@ async def online_finish(message: Message, state: FSMContext):
     data = await state.get_data()
 
     save_lead(data, message.from_user, "online")
-
-    await send_manager(f"""
-💻 ОНЛАЙН ЛІД
-
-👤 {data['name']}
-📱 {data['phone']}
-📧 {data['contact']}
-⏰ {message.text}
-""")
-
     save_event(message.from_user, "online")
 
-    await message.answer("✔️ Дякуємо!")
+    await message.answer("✔️ Дякуємо!", reply_markup=main_keyboard)
     await state.clear()
 
 # =========================
-# ADMIN STATS BUTTON
+# STATS (тільки ти)
 # =========================
 
 @dp.message(F.text == "📊 Статистика")
@@ -271,25 +274,17 @@ async def stats(message: Message):
     if message.chat.id != MANAGER_CHAT:
         return
 
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='pdf'")
-    pdf = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='office'")
-    office = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='online'")
-    online = cursor.fetchone()[0]
-
     cursor.execute("SELECT COUNT(*) FROM leads")
     leads = cursor.fetchone()[0]
 
-    await message.answer(f"""
-📊 CRM STAT
+    cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='pdf_download'")
+    pdf = cursor.fetchone()[0]
 
-📄 PDF: {pdf}
-🏢 Офіс: {office}
-💻 Онлайн: {online}
+    await message.answer(f"""
+📊 СТАТИСТИКА
+
 📦 Ліди: {leads}
+📄 PDF скачано: {pdf}
 """)
 
 # =========================
@@ -302,26 +297,46 @@ async def export(message: Message):
     if message.chat.id != MANAGER_CHAT:
         return
 
-    cursor.execute("SELECT * FROM leads")
-    rows = cursor.fetchall()
-
     wb = Workbook()
-    ws = wb.active
-    ws.title = "CRM"
 
-    ws.append([
-        "ID", "Username", "Full Name",
-        "Phone", "City", "Contact",
-        "Comment", "Source", "Date"
-    ])
+    ws1 = wb.active
+    ws1.title = "Leads"
 
-    for r in rows:
-        ws.append(r)
+    cursor.execute("SELECT * FROM leads")
+    for r in cursor.fetchall():
+        ws1.append(r)
+
+    ws2 = wb.create_sheet("PDF Logs")
+
+    cursor.execute("""
+        SELECT username, full_name, created_at
+        FROM analytics
+        WHERE action='pdf_download'
+    """)
+
+    for r in cursor.fetchall():
+        ws2.append(r)
 
     file = "crm.xlsx"
     wb.save(file)
 
     await message.answer_document(FSInputFile(file))
+
+# =========================
+# RESET
+# =========================
+
+@dp.message(F.text == "🧹 Reset (TEST)")
+async def reset(message: Message):
+
+    if message.chat.id != MANAGER_CHAT:
+        return
+
+    cursor.execute("DELETE FROM analytics")
+    cursor.execute("DELETE FROM leads")
+    conn.commit()
+
+    await message.answer("♻️ TEST DATA CLEARED")
 
 # =========================
 # RUN
