@@ -13,15 +13,16 @@ from aiogram.types import (
     KeyboardButton,
     FSInputFile,
 )
+
 from dotenv import load_dotenv
 import os
+
+from openpyxl import Workbook
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MANAGER_CHAT = 6600140962
-SUPREMA_IMAGE = "suprema.jpg"
-ACCURE_IMAGE = "accure.jpg"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -33,8 +34,7 @@ dp = Dispatcher(storage=MemoryStorage())
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-cursor.execute(
-    """
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS analytics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT,
@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS analytics (
     action TEXT,
     created_at TEXT
 )
-"""
-)
+""")
 
 conn.commit()
 
@@ -64,7 +63,6 @@ class OnlineConsultation(StatesGroup):
     contact = State()
     time = State()
 
-
 # =========================
 # KEYBOARD
 # =========================
@@ -82,26 +80,21 @@ main_keyboard = ReplyKeyboardMarkup(
 # HELPERS
 # =========================
 
-
 def save_analytics(user, action):
-    cursor.execute(
-        """
+    cursor.execute("""
         INSERT INTO analytics (username, full_name, action, created_at)
         VALUES (?, ?, ?, ?)
-        """,
-        (
-            user.username,
-            user.full_name,
-            action,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        ),
-    )
+    """, (
+        user.username,
+        user.full_name,
+        action,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    ))
     conn.commit()
 
 
 async def send_lead_to_manager(text):
     await bot.send_message(MANAGER_CHAT, text)
-
 
 # =========================
 # START
@@ -109,47 +102,10 @@ async def send_lead_to_manager(text):
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-
-    print("USER ID:", message.chat.id)
-
-    # Фото Suprema
-    try:
-        suprema = FSInputFile(SUPREMA_IMAGE)
-
-        await message.answer_photo(
-            photo=suprema,
-            caption="🔥 Suprema — флагманська платформа Quanta System"
-        )
-
-    except Exception as e:
-        print("SUPREMA ERROR:", e)
-
-    # Фото Accure
-    try:
-        accure = FSInputFile(ACCURE_IMAGE)
-
-        await message.answer_photo(
-            photo=accure,
-            caption="❄️ Accure — Єдина в світі система апаратного лікування акне"
-        )
-
-    except Exception as e:
-        print("ACCURE ERROR:", e)
-
     await message.answer(
-        """
-🔥 Chat Лідери для лідерів DUSO
-
-Оберіть потрібний пункт меню:
-
-📍 Звязатись з нами:
-Київ, вул. Садово-Ботанічна, 64
-📞 044 506 77 77
-duso.ua
-        """,
+        "🔥 DUSO BOT",
         reply_markup=main_keyboard
     )
-
 
 # =========================
 # PDF
@@ -157,144 +113,120 @@ duso.ua
 
 @dp.message(F.text == "📄 Отримати презентацію")
 async def send_presentation(message: Message):
+
     pdf = FSInputFile("catalog.pdf")
 
     await message.answer_document(
         document=pdf,
-        caption="Каталог Quanta System"
+        caption="Каталог DUSO"
     )
 
     save_analytics(message.from_user, "download_pdf")
 
-
 # =========================
-# OFFICE CONSULTATION
+# OFFICE
 # =========================
 
 @dp.message(F.text == "🏢 Замовити консультацію в офісі ДЮСО")
-async def office_consultation(message: Message, state: FSMContext):
+async def office_start(message: Message, state: FSMContext):
     await state.set_state(OfficeConsultation.name)
-    await message.answer("Вкажіть ваше ім'я:")
-
+    await message.answer("Ім'я:")
 
 @dp.message(OfficeConsultation.name)
 async def office_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(OfficeConsultation.phone)
-    await message.answer("Вкажіть номер телефону:")
-
+    await message.answer("Телефон:")
 
 @dp.message(OfficeConsultation.phone)
 async def office_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text)
     await state.set_state(OfficeConsultation.city)
-    await message.answer("Ваше місто:")
-
+    await message.answer("Місто:")
 
 @dp.message(OfficeConsultation.city)
 async def office_city(message: Message, state: FSMContext):
     await state.update_data(city=message.text)
     await state.set_state(OfficeConsultation.comment)
-    await message.answer("Коментар або побажання:")
-
+    await message.answer("Коментар:")
 
 @dp.message(OfficeConsultation.comment)
-async def office_comment(message: Message, state: FSMContext):
-    await state.update_data(comment=message.text)
-
+async def office_finish(message: Message, state: FSMContext):
     data = await state.get_data()
 
     text = f"""
-🏢 НОВА ЗАЯВКА — КОНСУЛЬТАЦІЯ В ОФІСІ
+🏢 ОФЛАЙН ЗАЯВКА
 
-👤 Ім'я: {data['name']}
-📱 Телефон: {data['phone']}
-🏙 Місто: {data['city']}
-💬 Коментар: {data['comment']}
-
-Telegram: @{message.from_user.username}
-    """
+👤 {data['name']}
+📱 {data['phone']}
+🏙 {data['city']}
+💬 {message.text}
+"""
 
     await send_lead_to_manager(text)
-
     save_analytics(message.from_user, "office_consultation")
 
-    await message.answer(
-        "✅ Дякуємо! Менеджер DUSO зв'яжеться з вами найближчим часом. 📞 044 506 77 77",
-        reply_markup=main_keyboard,
-    )
-
+    await message.answer("Дякуємо!", reply_markup=main_keyboard)
     await state.clear()
 
-
 # =========================
-# ONLINE CONSULTATION
+# ONLINE
 # =========================
 
 @dp.message(F.text == "💻 Замовити консультацію онлайн")
-async def online_consultation(message: Message, state: FSMContext):
+async def online_start(message: Message, state: FSMContext):
     await state.set_state(OnlineConsultation.name)
-    await message.answer("Вкажіть ваше ім'я:")
-
+    await message.answer("Ім'я:")
 
 @dp.message(OnlineConsultation.name)
 async def online_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(OnlineConsultation.phone)
-    await message.answer("Вкажіть номер телефону:")
-
+    await message.answer("Телефон:")
 
 @dp.message(OnlineConsultation.phone)
 async def online_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text)
     await state.set_state(OnlineConsultation.contact)
-    await message.answer("Ваш Telegram або email:")
-
+    await message.answer("Контакт:")
 
 @dp.message(OnlineConsultation.contact)
 async def online_contact(message: Message, state: FSMContext):
     await state.update_data(contact=message.text)
     await state.set_state(OnlineConsultation.time)
-    await message.answer("Зручний час для консультації:")
-
+    await message.answer("Час:")
 
 @dp.message(OnlineConsultation.time)
-async def online_time(message: Message, state: FSMContext):
-    await state.update_data(time=message.text)
-
+async def online_finish(message: Message, state: FSMContext):
     data = await state.get_data()
 
     text = f"""
-💻 НОВА ЗАЯВКА — ОНЛАЙН КОНСУЛЬТАЦІЯ
+💻 ОНЛАЙН ЗАЯВКА
 
-👤 Ім'я: {data['name']}
-📱 Телефон: {data['phone']}
-📧 Контакт: {data['contact']}
-⏰ Зручний час: {data['time']}
-
-Telegram: @{message.from_user.username}
-    """
+👤 {data['name']}
+📱 {data['phone']}
+📧 {data['contact']}
+⏰ {message.text}
+"""
 
     await send_lead_to_manager(text)
-
     save_analytics(message.from_user, "online_consultation")
 
-    await message.answer(
-        "✅ Дякуємо! Менеджер DUSO зв'яжеться з вами найближчим часом. 📞 044 506 77 77",
-        reply_markup=main_keyboard,
-    )
-
+    await message.answer("Дякуємо!", reply_markup=main_keyboard)
     await state.clear()
 
-
 # =========================
-# ANALYTICS
+# STATS (ONLY MANAGER)
 # =========================
 
 @dp.message(F.text == "/analytics")
 async def analytics(message: Message):
+
+    if message.chat.id != MANAGER_CHAT:
+        return
+
     cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='download_pdf'")
-    downloads = cursor.fetchone()[0]
+    pdf = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='office_consultation'")
     office = cursor.fetchone()[0]
@@ -302,16 +234,50 @@ async def analytics(message: Message):
     cursor.execute("SELECT COUNT(*) FROM analytics WHERE action='online_consultation'")
     online = cursor.fetchone()[0]
 
-    text = f"""
-📊 АНАЛІТИКА DUSO BOT
+    cursor.execute("SELECT COUNT(*) FROM analytics")
+    total = cursor.fetchone()[0]
 
-📄 Завантажень PDF: {downloads}
-🏢 Консультацій в офісі: {office}
-💻 Онлайн консультацій: {online}
-    """
+    text = f"""
+📊 СТАТИСТИКА
+
+📄 PDF: {pdf}
+🏢 Офлайн: {office}
+💻 Онлайн: {online}
+
+📦 Всього: {total}
+"""
 
     await message.answer(text)
 
+# =========================
+# EXPORT EXCEL
+# =========================
+
+@dp.message(F.text == "/export")
+async def export_excel(message: Message):
+
+    if message.chat.id != MANAGER_CHAT:
+        return
+
+    cursor.execute("SELECT * FROM analytics")
+    rows = cursor.fetchall()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Leads"
+
+    ws.append(["ID", "Username", "Full Name", "Action", "Date"])
+
+    for row in rows:
+        ws.append(row)
+
+    file_path = "leads.xlsx"
+    wb.save(file_path)
+
+    await message.answer_document(
+        FSInputFile(file_path),
+        caption="📁 Експорт лідів"
+    )
 
 # =========================
 # MAIN
@@ -320,7 +286,6 @@ async def analytics(message: Message):
 async def main():
     print("BOT STARTED")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
